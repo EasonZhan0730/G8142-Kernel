@@ -1,3 +1,35 @@
+# Put this file at .github/workflows/maple-baseline.yml on your default branch.
+# G8142 / LineageOS 21 baseline build. SukiSU is NOT integrated yet.
+# This produces kernel binaries and logs, NOT a flashable boot.img or ZIP.
+# Source revision matches the current lineage-21 branch, not proven to be
+# the exact source commit used by the user's 2024-06-16 ROM.
+name: G8142 baseline kernel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      KERNEL_REV: 267bc39c46e5ea83ee28749b973bbbf353974139
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex git libssl-dev libelf-dev libncurses-dev python3 rsync gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
+
+      - name: Fetch kernel and prepare GCC 10
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init kernel
+          git -C kernel remote add origin https://github.com/whatawurst/android_kernel_sony_msm8998.git
+          git -C kernel fetch --depth=1 origin "$KERNEL_REV"
           git -C kernel checkout --detach FETCH_HEAD
           mkdir -p toolchain/bin
           for target in aarch64-linux-gnu arm-linux-gnueabi; do
