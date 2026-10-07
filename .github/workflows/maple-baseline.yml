@@ -70,6 +70,13 @@ jobs:
           if "-Werror" not in flags:
               raise SystemExit("Wi-Fi warning policy changed; inspect Kbuild before patching")
           kbuild.write_text(flags + "\n# Keep unused-value diagnostics as warnings with GCC 10.\nEXTRA_CFLAGS += -Wno-error=unused-value\n")
+          softap = Path("kernel/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_softap_tx_rx.c")
+          old_rx = '\tif (QDF_STATUS_SUCCESS ==\n\t\thdd_softap_get_sta_id(pAdapter, &src_mac, &staid)) {\n\t\tif (staid < WLAN_MAX_STA_COUNT) {\n\t\t\tpAdapter->aStaInfo[staid].rx_packets++;\n\t\t\tpAdapter->aStaInfo[staid].rx_bytes += skb->len;\n\t\t\tpAdapter->aStaInfo[staid].last_tx_rx_ts =\n\t\t\t\tqdf_system_ticks();\n\t\t}\n\t}\n\n\thdd_dhcp_indication(pAdapter, staid, skb, QDF_RX);'
+          new_rx = '\tif (QDF_STATUS_SUCCESS ==\n\t\thdd_softap_get_sta_id(pAdapter, &src_mac, &staid)) {\n\t\tif (staid < WLAN_MAX_STA_COUNT) {\n\t\t\tpAdapter->aStaInfo[staid].rx_packets++;\n\t\t\tpAdapter->aStaInfo[staid].rx_bytes += skb->len;\n\t\t\tpAdapter->aStaInfo[staid].last_tx_rx_ts =\n\t\t\t\tqdf_system_ticks();\n\t\t\thdd_dhcp_indication(pAdapter, staid, skb, QDF_RX);\n\t\t}\n\t}'
+          rx_source = softap.read_text()
+          if rx_source.count(old_rx) != 1:
+              raise SystemExit("Expected SoftAP RX block not found exactly once")
+          softap.write_text(rx_source.replace(old_rx, new_rx, 1))
           PYFIX
           git -C kernel diff --check
           git -C kernel diff > artifacts/source-changes.patch
