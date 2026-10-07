@@ -84,6 +84,13 @@ jobs:
                   raise SystemExit("Expected MAC trace stub not found exactly once")
               trace_source = trace_source.replace(old_stub, new_stub, 1)
           trace_header.write_text(trace_source)
+          cfg_api = Path("kernel/drivers/staging/qcacld-3.0/core/mac/src/cfg/cfg_api.c")
+          old_indent = '\t\t\t/* notify other modules if necessary */\n\t\t\tif ((mask & CFG_CTL_NTF_MASK) != 0)\n\t\t\t\tnotify(pMac, cfgId, mask);'
+          new_indent = '\t\t/* notify other modules if necessary */\n\t\tif ((mask & CFG_CTL_NTF_MASK) != 0)\n\t\t\tnotify(pMac, cfgId, mask);'
+          cfg_source = cfg_api.read_text()
+          if cfg_source.count(old_indent) != 1:
+              raise SystemExit("Expected cfg_set_int indentation block not found exactly once")
+          cfg_api.write_text(cfg_source.replace(old_indent, new_indent, 1))
           PYFIX
           git -C kernel diff --check
           git -C kernel diff > artifacts/source-changes.patch
