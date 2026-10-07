@@ -77,6 +77,13 @@ jobs:
           if rx_source.count(old_rx) != 1:
               raise SystemExit("Expected SoftAP RX block not found exactly once")
           softap.write_text(rx_source.replace(old_rx, new_rx, 1))
+          trace_header = Path("kernel/drivers/staging/qcacld-3.0/core/mac/inc/mac_trace.h")
+          trace_source = trace_header.read_text()
+          for old_stub, new_stub in [('#define mac_trace_get_neighbour_roam_state(neighbourRoamState) (0)', '#define mac_trace_get_neighbour_roam_state(neighbourRoamState) ((uint8_t *)"disabled")'), ('#define mac_trace_getcsr_roam_state(csr_roamState) (0)', '#define mac_trace_getcsr_roam_state(csr_roamState) ((uint8_t *)"disabled")'), ('#define mac_trace_getcsr_roam_sub_state(csr_roamSubState) (0)', '#define mac_trace_getcsr_roam_sub_state(csr_roamSubState) ((uint8_t *)"disabled")'), ('#define mac_trace_get_lim_sme_state(limState) (0)', '#define mac_trace_get_lim_sme_state(limState) ((uint8_t *)"disabled")'), ('#define mac_trace_get_lim_mlm_state(mlmState) (0)', '#define mac_trace_get_lim_mlm_state(mlmState) ((uint8_t *)"disabled")'), ('#define mac_trace_get_tl_state(tlState) (0)', '#define mac_trace_get_tl_state(tlState) ((uint8_t *)"disabled")')]:
+              if trace_source.count(old_stub) != 1:
+                  raise SystemExit("Expected MAC trace stub not found exactly once")
+              trace_source = trace_source.replace(old_stub, new_stub, 1)
+          trace_header.write_text(trace_source)
           PYFIX
           git -C kernel diff --check
           git -C kernel diff > artifacts/source-changes.patch
