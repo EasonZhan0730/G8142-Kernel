@@ -53,6 +53,22 @@ jobs:
             dpkg-query -W gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
           } > artifacts/versions.txt
 
+      - name: Fix Wi-Fi no-op macro for newer GCC
+        shell: bash
+        run: |
+          python3 - <<'PYFIX'
+          from pathlib import Path
+          p = Path("kernel/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_cfg.c")
+          old = "#define hdd_cfg_print_action_oui(hdd_ctx) (0)"
+          new = "#define hdd_cfg_print_action_oui(hdd_ctx) ((void)0)"
+          source = p.read_text()
+          if source.count(old) != 1:
+              raise SystemExit("Expected Wi-Fi macro not found exactly once; inspect source before patching")
+          p.write_text(source.replace(old, new, 1))
+          PYFIX
+          git -C kernel diff --check
+          git -C kernel diff > artifacts/source-changes.patch
+
       - name: Build baseline kernel
         shell: bash
         run: |
