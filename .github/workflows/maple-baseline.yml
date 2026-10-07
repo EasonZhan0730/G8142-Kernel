@@ -1,0 +1,80 @@
+# Put this file at .github/workflows/maple-baseline.yml on your default branch.
+# G8142 / LineageOS 21 baseline build. SukiSU is NOT integrated yet.
+# This produces kernel binaries and logs, NOT a flashable boot.img or ZIP.
+# Source revision matches the current lineage-21 branch, not proven to be
+# the exact source commit used by the user's 2024-06-16 ROM.
+name: G8142 baseline kernel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      KERNEL_REV: 267bc39c46e5ea83ee28749b973bbbf353974139
+      TOOLCHAIN_REV: be79a1c2ee1ff7a110b653a682c236979539acd2
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex git libssl-dev libelf-dev libncurses5 libtinfo5 python3 rsync
+
+      - name: Fetch kernel and GCC 4.9
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init kernel
+          git -C kernel remote add origin https://github.com/whatawurst/android_kernel_sony_msm8998.git
+          git -C kernel fetch --depth=1 origin "$KERNEL_REV"
+          git -C kernel checkout --detach FETCH_HEAD
+          git init toolchain
+          git -C toolchain remote add origin https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
+          git -C toolchain fetch --depth=1 origin "$TOOLCHAIN_REV"
+          git -C toolchain checkout --detach FETCH_HEAD
+          mkdir -p artifacts
+          {
+            git -C kernel rev-parse HEAD
+            git -C toolchain rev-parse HEAD
+            toolchain/bin/aarch64-linux-android-gcc --version
+          } > artifacts/versions.txt
+
+      - name: Build baseline kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ARCH=arm64
+          export CROSS_COMPILE="$GITHUB_WORKSPACE/toolchain/bin/aarch64-linux-android-"
+          cd kernel
+          make O=out HOSTCFLAGS="-O2 -fcommon" lineage-msm8998-yoshino-maple_dsds_defconfig 2>&1 | tee ../artifacts/configure.log
+          cp out/.config ../artifacts/kernel.config
+          make O=out HOSTCFLAGS="-O2 -fcommon" -j"$(nproc)" Image.gz-dtb modules 2>&1 | tee ../artifacts/build.log
+          test -s out/arch/arm64/boot/Image.gz-dtb
+          cp out/arch/arm64/boot/Image.gz-dtb ../artifacts/
+          cp out/System.map ../artifacts/
+          make O=out HOSTCFLAGS="-O2 -fcommon" modules_install INSTALL_MOD_PATH="$GITHUB_WORKSPACE/artifacts/modules" 2>&1 | tee ../artifacts/modules.log
+          cd ../artifacts
+          sha256sum Image.gz-dtb > SHA256SUMS
+          printf '%s\n' 'BASELINE ONLY: no SukiSU, no boot.img, no flashable ZIP. Exact ROM source revision and boot compatibility are not verified.' > READ-ME.txt
+
+      - name: Collect configuration even after a build failure
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          if [ -f kernel/out/.config ]; then
+            cp kernel/out/.config artifacts/kernel.config
+          fi
+
+      - name: Upload binaries and diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: G8142-baseline-${{ github.run_number }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 14
