@@ -53,7 +53,7 @@ jobs:
             dpkg-query -W gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
           } > artifacts/versions.txt
 
-      - name: Fix Wi-Fi no-op macro for newer GCC
+      - name: Fix Wi-Fi unused-value compatibility with GCC 10
         shell: bash
         run: |
           python3 - <<'PYFIX'
@@ -65,6 +65,11 @@ jobs:
           if source.count(old) != 1:
               raise SystemExit("Expected Wi-Fi macro not found exactly once; inspect source before patching")
           p.write_text(source.replace(old, new, 1))
+          kbuild = Path("kernel/drivers/staging/qcacld-3.0/Kbuild")
+          flags = kbuild.read_text()
+          if "-Werror" not in flags:
+              raise SystemExit("Wi-Fi warning policy changed; inspect Kbuild before patching")
+          kbuild.write_text(flags + "\n# Keep unused-value diagnostics as warnings with GCC 10.\nEXTRA_CFLAGS += -Wno-error=unused-value\n")
           PYFIX
           git -C kernel diff --check
           git -C kernel diff > artifacts/source-changes.patch
