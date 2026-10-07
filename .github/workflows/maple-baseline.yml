@@ -1,5 +1,6 @@
 # Put this file at .github/workflows/maple-baseline.yml on your default branch.
 # G8142 / LineageOS 21 baseline build. SukiSU is NOT integrated yet.
+# Full kernel build verified on Ubuntu 24.04 with GCC 10.5 on 2026-10-07.
 # This produces kernel binaries and logs, NOT a flashable boot.img or ZIP.
 # Source revision matches the current lineage-21 branch, not proven to be
 # the exact source commit used by the user's 2024-06-16 ROM.
@@ -13,7 +14,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       KERNEL_REV: 267bc39c46e5ea83ee28749b973bbbf353974139
@@ -21,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex git libssl-dev libelf-dev libncurses-dev python3 rsync gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
+          sudo apt-get install -y build-essential bc bison flex git libssl-dev libelf-dev libncurses-dev python3 rsync kmod gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
 
       - name: Fetch kernel and prepare GCC 10
         shell: bash
@@ -69,7 +70,7 @@ jobs:
           flags = kbuild.read_text()
           if "-Werror" not in flags:
               raise SystemExit("Wi-Fi warning policy changed; inspect Kbuild before patching")
-          kbuild.write_text(flags + "\n# Keep unused-value diagnostics as warnings with GCC 10.\nEXTRA_CFLAGS += -Wno-error=unused-value\n")
+          kbuild.write_text(flags + "\n# Keep unused-value and indentation diagnostics as warnings with GCC 10.\nEXTRA_CFLAGS += -Wno-error=unused-value -Wno-error=misleading-indentation\n")
           softap = Path("kernel/drivers/staging/qcacld-3.0/core/hdd/src/wlan_hdd_softap_tx_rx.c")
           old_rx = '\tif (QDF_STATUS_SUCCESS ==\n\t\thdd_softap_get_sta_id(pAdapter, &src_mac, &staid)) {\n\t\tif (staid < WLAN_MAX_STA_COUNT) {\n\t\t\tpAdapter->aStaInfo[staid].rx_packets++;\n\t\t\tpAdapter->aStaInfo[staid].rx_bytes += skb->len;\n\t\t\tpAdapter->aStaInfo[staid].last_tx_rx_ts =\n\t\t\t\tqdf_system_ticks();\n\t\t}\n\t}\n\n\thdd_dhcp_indication(pAdapter, staid, skb, QDF_RX);'
           new_rx = '\tif (QDF_STATUS_SUCCESS ==\n\t\thdd_softap_get_sta_id(pAdapter, &src_mac, &staid)) {\n\t\tif (staid < WLAN_MAX_STA_COUNT) {\n\t\t\tpAdapter->aStaInfo[staid].rx_packets++;\n\t\t\tpAdapter->aStaInfo[staid].rx_bytes += skb->len;\n\t\t\tpAdapter->aStaInfo[staid].last_tx_rx_ts =\n\t\t\t\tqdf_system_ticks();\n\t\t\thdd_dhcp_indication(pAdapter, staid, skb, QDF_RX);\n\t\t}\n\t}'
@@ -98,6 +99,13 @@ jobs:
           if proc_source.count(old_loop) != 1:
               raise SystemExit("Expected proc_get_req loop not found exactly once")
           cfg_proc.write_text(proc_source.replace(old_loop, new_loop, 1))
+          csr_roam = Path("kernel/drivers/staging/qcacld-3.0/core/sme/src/csr/csr_api_roam.c")
+          old_session = '\t\t\t\t\t\t\t   bssId, &sessionId);\n\t\tpSession = CSR_GET_SESSION(pMac, sessionId);'
+          new_session = '\t\t\t\t\t\t\t   bssId, &sessionId);\n\t\tif (QDF_IS_STATUS_ERROR(status)) {\n\t\t\tsme_err("association confirmation session lookup failed");\n\t\t\treturn;\n\t\t}\n\t\tpSession = CSR_GET_SESSION(pMac, sessionId);'
+          csr_source = csr_roam.read_text()
+          if csr_source.count(old_session) != 1:
+              raise SystemExit("Expected association confirmation lookup not found exactly once")
+          csr_roam.write_text(csr_source.replace(old_session, new_session, 1))
           PYFIX
           git -C kernel diff --check
           git -C kernel diff > artifacts/source-changes.patch
@@ -112,7 +120,7 @@ jobs:
           cd kernel
           make O=out HOSTCFLAGS="-O2 -fcommon" lineage-msm8998-yoshino-maple_dsds_defconfig 2>&1 | tee ../artifacts/configure.log
           cp out/.config ../artifacts/kernel.config
-          make O=out HOSTCFLAGS="-O2 -fcommon" -j"$(nproc)" Image.gz-dtb modules 2>&1 | tee ../artifacts/build.log
+          make O=out HOSTCFLAGS="-O2 -fcommon" -k -j"$(nproc)" Image.gz-dtb modules 2>&1 | tee ../artifacts/build.log
           test -s out/arch/arm64/boot/Image.gz-dtb
           cp out/arch/arm64/boot/Image.gz-dtb ../artifacts/
           cp out/System.map ../artifacts/
