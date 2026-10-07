@@ -1,53 +1,24 @@
-# Put this file at .github/workflows/maple-baseline.yml on your default branch.
-# G8142 / LineageOS 21 baseline build. SukiSU is NOT integrated yet.
-# This produces kernel binaries and logs, NOT a flashable boot.img or ZIP.
-# Source revision matches the current lineage-21 branch, not proven to be
-# the exact source commit used by the user's 2024-06-16 ROM.
-name: G8142 baseline kernel
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    env:
-      KERNEL_REV: 267bc39c46e5ea83ee28749b973bbbf353974139
-      TOOLCHAIN_REV: be79a1c2ee1ff7a110b653a682c236979539acd2
-      TOOLCHAIN_ARM32_REV: da10d2bd65e2c57d338fb6bb712ff522ad4e34e7
-    steps:
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex git libssl-dev libelf-dev libncurses5 libtinfo5 python3 rsync
-
-      - name: Fetch kernel and GCC 4.9
-        shell: bash
-        run: |
-          set -euo pipefail
-          git init kernel
-          git -C kernel remote add origin https://github.com/whatawurst/android_kernel_sony_msm8998.git
-          git -C kernel fetch --depth=1 origin "$KERNEL_REV"
           git -C kernel checkout --detach FETCH_HEAD
-          git init toolchain
-          git -C toolchain remote add origin https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
-          git -C toolchain fetch --depth=1 origin "$TOOLCHAIN_REV"
-          git -C toolchain checkout --detach FETCH_HEAD
-          git init toolchain-arm32
-          git -C toolchain-arm32 remote add origin https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git
-          git -C toolchain-arm32 fetch --depth=1 origin "$TOOLCHAIN_ARM32_REV"
-          git -C toolchain-arm32 checkout --detach FETCH_HEAD
+          mkdir -p toolchain/bin
+          for target in aarch64-linux-gnu arm-linux-gnueabi; do
+            ln -s "$(command -v "$target-gcc-10")" "toolchain/bin/$target-gcc"
+            for tool in ar as ld nm objcopy objdump strip readelf size; do
+              ln -s "$(command -v "$target-$tool")" "toolchain/bin/$target-$tool"
+            done
+            version=$("toolchain/bin/$target-gcc" -dumpversion)
+            if [ "${version%%.*}" -lt 5 ]; then
+              printf 'Compiler too old: %s\n' "$version" >&2
+              exit 1
+            fi
+          done
           mkdir -p artifacts
           {
             git -C kernel rev-parse HEAD
-            git -C toolchain rev-parse HEAD
-            toolchain/bin/aarch64-linux-android-gcc --version
-            git -C toolchain-arm32 rev-parse HEAD
-            toolchain-arm32/bin/arm-linux-androideabi-gcc --version
+            toolchain/bin/aarch64-linux-gnu-gcc --version
+            toolchain/bin/arm-linux-gnueabi-gcc --version
+            aarch64-linux-gnu-ld --version
+            arm-linux-gnueabi-ld --version
+            dpkg-query -W gcc-10-aarch64-linux-gnu gcc-10-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
           } > artifacts/versions.txt
 
       - name: Build baseline kernel
@@ -55,8 +26,8 @@ jobs:
         run: |
           set -euo pipefail
           export ARCH=arm64
-          export CROSS_COMPILE="$GITHUB_WORKSPACE/toolchain/bin/aarch64-linux-android-"
-          export CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/toolchain-arm32/bin/arm-linux-androideabi-"
+          export CROSS_COMPILE="$GITHUB_WORKSPACE/toolchain/bin/aarch64-linux-gnu-"
+          export CROSS_COMPILE_ARM32="$GITHUB_WORKSPACE/toolchain/bin/arm-linux-gnueabi-"
           cd kernel
           make O=out HOSTCFLAGS="-O2 -fcommon" lineage-msm8998-yoshino-maple_dsds_defconfig 2>&1 | tee ../artifacts/configure.log
           cp out/.config ../artifacts/kernel.config
