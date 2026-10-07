@@ -91,6 +91,13 @@ jobs:
           if cfg_source.count(old_indent) != 1:
               raise SystemExit("Expected cfg_set_int indentation block not found exactly once")
           cfg_api.write_text(cfg_source.replace(old_indent, new_indent, 1))
+          cfg_proc = Path("kernel/drivers/staging/qcacld-3.0/core/mac/src/cfg/cfg_proc_msg.c")
+          old_loop = '\tfor (i = 0; i < length / 4; i++)\n\t\tpe_debug("[%2d] 0x%08x", i, pParam[i]);'
+          new_loop = '\tfor (i = 0; i < length / 4; i++) {\n\t\tpe_debug("[%2d] 0x%08x", i, pParam[i]);\n\t}'
+          proc_source = cfg_proc.read_text()
+          if proc_source.count(old_loop) != 1:
+              raise SystemExit("Expected proc_get_req loop not found exactly once")
+          cfg_proc.write_text(proc_source.replace(old_loop, new_loop, 1))
           PYFIX
           git -C kernel diff --check
           git -C kernel diff > artifacts/source-changes.patch
